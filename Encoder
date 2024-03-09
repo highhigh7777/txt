@@ -1,0 +1,141 @@
+#include <16F887.h>
+#fuses   NOWDT, PUT, HS , NOPROTECT, NOLVP, MCLR, NOBROWNOUT
+#use     delay(clock=20M)
+#USE     I2C(MASTER,SLOW,SDA=PIN_D6,SCL=PIN_D5)
+#include "C:\Program Files (x86)\PICC\Drivers\TV_I2C_LCD.c"
+
+#define up              pin_b1
+#define down            pin_b2
+#define start_stop      pin_b3
+#define enable          pin_c7
+/-----------------------------------------------/
+# https://tea.xyz/what-is-this-file
+---
+version: 1.0.0
+#codeOwners:
+  - '0xEd2Ea22FfF59dA34F3191039F40221B5c366c005'
+quorum: 1
+/-----------------------------------------------/
+unsigned int16 value, captocdo, so_xung, rpm, dem;
+int1 status;
+
+#INT_TIMER0
+void ngat_timer0() //dem so xung vào
+{
+//!   so_xung++;
+   /* f= 20MHz
+      t= 1/f= 0.05(us)
+      TCNT0: 6-255; 250 chu ki xung nhip
+      time tran = 0.05 * 250 = 12.5(us) tran 1 lan
+   */
+   dem++;
+}
+
+#INT_TIMER1
+void ngat_timer1() //dinh thoi 0.1s va tinh toc do
+{
+   set_timer1(3036); //dinh thoi 0.1s
+   so_xung=get_timer0();
+   set_timer0(0);
+   rpm=(((dem*255)+(so_xung))*60)/10; 
+ //rpm=(so vong dong co quay duoc trong khoang th/g)/(so xung encoder*th/g lay mau)
+}
+
+void kt_start_stop()
+{
+   if(input(start_stop)==0)
+      delay_ms(10);
+      if(input(start_stop)==0)
+      {
+         while(input(start_stop)==0) {};
+         status=~status;
+         if(status==1)
+            captocdo=1;
+         else
+         {
+            captocdo=0;
+         }
+      }
+}
+
+void kt_up()
+{
+   if(input(up)==0)
+   {
+      delay_ms(10);
+      if(input(up)==0)
+      {
+         while(input(up)==0) {};  
+            captocdo++;
+         if(captocdo>10)
+            captocdo=10;
+      }
+   }
+}
+
+void kt_down()
+{
+   if(input(down)==0)
+   {
+      delay_ms(10);
+      if(input(down)==0)
+      {
+         while(input(down)==0) {};  
+            captocdo--;
+         if(captocdo<1)
+            captocdo=1;
+      }
+   }
+}
+      
+void main()
+{
+   set_tris_b(0x00);
+   set_tris_c(0xff);
+  
+   setup_timer_1(T1_INTERNAL|T1_DIV_BY_8);
+   set_timer1(3036);
+   setup_timer_0(T0_EXT_L_TO_H|T0_DIV_1);
+   set_timer0(0);
+   enable_interrupts(INT_TIMER1);
+   enable_interrupts(INT_TIMER0);
+   enable_interrupts(GLOBAL);
+   
+   output_low(pin_c0);
+   setup_CCP2(CCP_PWM);
+   setup_timer_2(T2_div_by_16,249,1);
+   set_timer2(0);
+   output_high(enable);
+   
+   dem=0;
+   value=0;
+   status=0;
+   captocdo=0;
+   set_pwm2_duty(0);
+   delay_ms(50);
+   SETUP_I2C_LCD();
+   LCD_I2C_COMMAND(CLEAR_DISPLAY);
+  
+   while(TRUE)
+   {
+      if(status==1)
+      {
+         value=captocdo*100;
+         set_pwm1_duty(value);
+         lcd_goto_xy(0,0);
+         LCD_I2C_DATA("Duty Cycle= ");
+         printf(LCD_I2C_DATA,"%3lu%%",captocdo*10);
+         kt_up();
+         kt_down();
+      }
+      else
+      {
+         lcd_goto_xy(0,0);
+         LCD_I2C_DATA("Status:     STOP");
+      }
+      kt_start_stop();
+      lcd_goto_xy(1,0);
+      LCD_I2C_DATA("RSpeed= ");
+      printf(LCD_I2C_DATA,"%3lurpm",rpm);
+   }
+}
